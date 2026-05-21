@@ -1,0 +1,58 @@
+name: sionna_inh_hotspot
+description: Indoor hotspot profile for dense short-range CSI service evaluation.
+seed: 23
+time:
+  num_slots: 100
+  tti_ms: 0.5
+  warmup_slots: 5
+nr:
+  carrier_frequency_hz: 5.2e9
+  bandwidth_hz: 100.0e6
+  subcarrier_spacing_hz: 60.0e3
+  num_ofdm_symbols: 14
+  num_frequency_resources: 132
+  duplex_mode: downlink
+topology:
+  scenario: inh
+  num_rings: 1
+  num_cells: 1
+  sectors_per_cell: 1
+  inter_site_distance_m: 60.0
+  cell_radius_m: 30.0
+  min_bs_ut_distance_m: 3.0
+  max_bs_ut_distance_m: 50.0
+  bs_height_m: 3.0
+  min_ut_height_m: 1.0
+  max_ut_height_m: 1.5
+  indoor_probability: 1.0
+ue:
+  num_ues: 24
+  scheduled_per_slot: 8
+  min_velocity_mps: 0.0
+  max_velocity_mps: 1.5
+  traffic_model: scheduled_only
+channel:
+  model_family: tr38901
+  model: inh
+  los: auto
+  normalize_channel: true
+scheduler:
+  type: proportional_fair
+  num_streams_per_ue: 1
+  beta: 0.98
+link_adaptation:
+  enabled: true
+  olla_enabled: true
+  target_bler: 0.05
+power_control:
+  uplink: open_loop
+  downlink: fair
+  max_tx_power_dbm: 20.0
+cple:
+  csi_dim: 96
+  history_len: 4
+  deadline_ms: 2.0
+  feedback_capacity_per_slot: 4
+metadata:
+  intended_use: tight-deadline dense indoor scheduling experiment
+  notes: Useful for deadline miss and jitter stress tests.

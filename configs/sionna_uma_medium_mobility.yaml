@@ -1,0 +1,58 @@
+name: sionna_uma_medium_mobility
+description: Urban macro medium-mobility profile for larger-cell CSI service evaluation.
+seed: 17
+time:
+  num_slots: 200
+  tti_ms: 1.0
+  warmup_slots: 10
+nr:
+  carrier_frequency_hz: 2.6e9
+  bandwidth_hz: 50.0e6
+  subcarrier_spacing_hz: 30.0e3
+  num_ofdm_symbols: 14
+  num_frequency_resources: 106
+  duplex_mode: downlink
+topology:
+  scenario: uma
+  num_rings: 1
+  num_cells: 7
+  sectors_per_cell: 3
+  inter_site_distance_m: 500.0
+  cell_radius_m: 250.0
+  min_bs_ut_distance_m: 35.0
+  max_bs_ut_distance_m: 500.0
+  bs_height_m: 25.0
+  min_ut_height_m: 1.5
+  max_ut_height_m: 1.5
+  indoor_probability: 0.5
+ue:
+  num_ues: 32
+  scheduled_per_slot: 8
+  min_velocity_mps: 1.0
+  max_velocity_mps: 15.0
+  traffic_model: scheduled_only
+channel:
+  model_family: tr38901
+  model: uma
+  los: auto
+  normalize_channel: true
+scheduler:
+  type: proportional_fair
+  num_streams_per_ue: 1
+  beta: 0.98
+link_adaptation:
+  enabled: true
+  olla_enabled: true
+  target_bler: 0.1
+power_control:
+  uplink: open_loop
+  downlink: fair
+  max_tx_power_dbm: 23.0
+cple:
+  csi_dim: 128
+  history_len: 4
+  deadline_ms: 10.0
+  feedback_capacity_per_slot: 8
+metadata:
+  intended_use: multi-UE scheduling pressure and queue latency experiment
+  notes: Larger resource grid and UE count than UMi profile.

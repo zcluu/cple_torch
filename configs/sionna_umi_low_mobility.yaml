@@ -1,0 +1,58 @@
+name: sionna_umi_low_mobility
+description: Urban micro low-mobility profile for CSI feedback/prediction runtime evaluation.
+seed: 7
+time:
+  num_slots: 100
+  tti_ms: 1.0
+  warmup_slots: 5
+nr:
+  carrier_frequency_hz: 3.5e9
+  bandwidth_hz: 20.0e6
+  subcarrier_spacing_hz: 30.0e3
+  num_ofdm_symbols: 14
+  num_frequency_resources: 52
+  duplex_mode: downlink
+topology:
+  scenario: umi
+  num_rings: 1
+  num_cells: 3
+  sectors_per_cell: 3
+  inter_site_distance_m: 200.0
+  cell_radius_m: 100.0
+  min_bs_ut_distance_m: 10.0
+  max_bs_ut_distance_m: 150.0
+  bs_height_m: 10.0
+  min_ut_height_m: 1.5
+  max_ut_height_m: 1.5
+  indoor_probability: 0.2
+ue:
+  num_ues: 16
+  scheduled_per_slot: 4
+  min_velocity_mps: 0.0
+  max_velocity_mps: 3.0
+  traffic_model: scheduled_only
+channel:
+  model_family: tr38901
+  model: umi
+  los: auto
+  normalize_channel: true
+scheduler:
+  type: proportional_fair
+  num_streams_per_ue: 1
+  beta: 0.98
+link_adaptation:
+  enabled: true
+  olla_enabled: true
+  target_bler: 0.1
+power_control:
+  uplink: open_loop
+  downlink: fair
+  max_tx_power_dbm: 23.0
+cple:
+  csi_dim: 64
+  history_len: 4
+  deadline_ms: 5.0
+  feedback_capacity_per_slot: 4
+metadata:
+  intended_use: single-cell or small multicell low-mobility CSI service stress test
+  notes: Good default for early CPLE runtime/jitter experiments.

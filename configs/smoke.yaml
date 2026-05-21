@@ -1,0 +1,20 @@
+platform:
+  run_id: smoke
+  num_slots: 20
+  tti_ms: 5.0
+  deadline_ms: 5.0
+  device: cpu
+  feedback_capacity_per_slot: 4
+  warmup_slots: 1
+  output_dir: outputs/smoke
+  seed: 7
+  num_workers: 1
+adapter:
+  num_ues: 4
+  csi_dim: 8
+  scheduled_per_slot: 2
+  history_len: 2
+  seed: 7
+models:
+  - dummy_parallel
+  - dummy_serial

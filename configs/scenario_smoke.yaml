@@ -1,0 +1,11 @@
+sionna_scenario_path: sionna_umi_low_mobility.yaml
+platform:
+  run_id: scenario_smoke
+  num_slots: 12
+  output_dir: outputs/scenario_smoke
+adapter:
+  csi_dim: 16
+  scheduled_per_slot: 2
+models:
+  - dummy_parallel
+  - dummy_serial
