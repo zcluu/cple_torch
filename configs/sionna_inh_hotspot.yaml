@@ -36,6 +36,7 @@ channel:
   model: inh
   los: auto
   normalize_channel: true
+  use_3gpp_channel: false
 scheduler:
   type: proportional_fair
   num_streams_per_ue: 1
@@ -52,7 +53,7 @@ cple:
   csi_dim: 96
   history_len: 4
   deadline_ms: 2.0
-  feedback_capacity_per_slot: 4
+  feedback_resource_units_per_request: 64
 metadata:
   intended_use: tight-deadline dense indoor scheduling experiment
   notes: Useful for deadline miss and jitter stress tests.

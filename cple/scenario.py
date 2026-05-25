@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 import yaml
 
-from .config import MockAdapterConfig, PlatformConfig
+from .config import AdapterConfig, PlatformConfig
 
 
 ScenarioName = Literal["umi", "uma", "rma", "inh"]
@@ -63,6 +63,10 @@ class ScenarioChannelConfig:
     los: str | bool = "auto"
     normalize_channel: bool = True
     delay_spread_s: float | None = None
+    use_3gpp_channel: bool = True
+    o2i_model: str = "low"
+    enable_pathloss: bool = True
+    enable_shadow_fading: bool = True
 
 
 @dataclass
@@ -91,8 +95,7 @@ class ScenarioCPLEConfig:
     csi_dim: int = 64
     history_len: int = 4
     deadline_ms: float = 5.0
-    feedback_capacity_per_slot: int = 4
-    feedback_slot_ms: float | None = None
+    feedback_resource_units_per_request: int = 64
 
 
 @dataclass
@@ -159,6 +162,8 @@ def validate_sionna_scenario(config: SionnaScenarioConfig) -> None:
         raise ValueError(f"channel.model must be one of {sorted(allowed_scenarios)}")
     if config.channel.model != config.topology.scenario:
         raise ValueError("channel.model should match topology.scenario for TR 38.901 profiles")
+    if config.channel.o2i_model not in {"low", "high"}:
+        raise ValueError("channel.o2i_model must be low or high")
     if config.time.num_slots <= 0:
         raise ValueError("time.num_slots must be positive")
     if config.time.tti_ms <= 0:
@@ -173,10 +178,8 @@ def validate_sionna_scenario(config: SionnaScenarioConfig) -> None:
         raise ValueError("cple.csi_dim must be positive")
     if config.cple.history_len <= 0:
         raise ValueError("cple.history_len must be positive")
-    if config.cple.feedback_capacity_per_slot <= 0:
-        raise ValueError("cple.feedback_capacity_per_slot must be positive")
-    if config.cple.feedback_slot_ms is not None and config.cple.feedback_slot_ms <= 0:
-        raise ValueError("cple.feedback_slot_ms must be positive when set")
+    if config.cple.feedback_resource_units_per_request <= 0:
+        raise ValueError("cple.feedback_resource_units_per_request must be positive")
     if config.nr.carrier_frequency_hz <= 0:
         raise ValueError("nr.carrier_frequency_hz must be positive")
     if config.nr.bandwidth_hz <= 0:
@@ -185,14 +188,17 @@ def validate_sionna_scenario(config: SionnaScenarioConfig) -> None:
         raise ValueError("scheduler.type must be proportional_fair, round_robin, or fixed")
 
 
-def scenario_to_mock_adapter_config(config: SionnaScenarioConfig) -> MockAdapterConfig:
-    return MockAdapterConfig(
+def scenario_to_adapter_config(config: SionnaScenarioConfig) -> AdapterConfig:
+    return AdapterConfig(
         num_ues=config.ue.num_ues,
         csi_dim=config.cple.csi_dim,
         scheduled_per_slot=config.ue.scheduled_per_slot,
         history_len=config.cple.history_len,
         seed=config.seed,
     )
+
+
+scenario_to_mock_adapter_config = scenario_to_adapter_config
 
 
 def scenario_to_platform_config(config: SionnaScenarioConfig, output_dir: str | None = None) -> PlatformConfig:
@@ -202,8 +208,7 @@ def scenario_to_platform_config(config: SionnaScenarioConfig, output_dir: str | 
         tti_ms=config.time.tti_ms,
         deadline_ms=config.cple.deadline_ms,
         device="cpu",
-        feedback_capacity_per_slot=config.cple.feedback_capacity_per_slot,
-        feedback_slot_ms=config.cple.feedback_slot_ms,
+        feedback_resource_units_per_request=config.cple.feedback_resource_units_per_request,
         warmup_slots=config.time.warmup_slots,
         output_dir=output_dir or f"outputs/{config.name}",
         seed=config.seed,

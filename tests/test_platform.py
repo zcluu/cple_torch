@@ -2,9 +2,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from cple.runner import run_experiment
-from cple.scenario import describe_sionna_mapping, load_sionna_scenario, scenario_to_mock_adapter_config, scenario_to_platform_config
+from cple.runner import build_adapter, load_config, run_experiment
+from cple.scenario import describe_sionna_mapping, load_sionna_scenario, scenario_to_adapter_config, scenario_to_platform_config
 from cple.sionna_adapter import inspect_sionna_environment
+
+
+ROOT = Path(__file__).resolve().parents[1]
+CONFIGS = ROOT / "configs"
 
 
 def test_sionna_imports_cpu_environment():
@@ -15,22 +19,22 @@ def test_sionna_imports_cpu_environment():
 
 def test_smoke_experiment_outputs(tmp_path):
     config_path = tmp_path / "smoke.yaml"
+    scenario_profile = tmp_path / "sionna_umi_low_mobility.yaml"
+    scenario_profile.write_text((CONFIGS / "sionna_umi_low_mobility.yaml").read_text(encoding="utf-8"), encoding="utf-8")
     output_dir = tmp_path / "outputs"
     config_path.write_text(
         f"""
+sionna_scenario_path: sionna_umi_low_mobility.yaml
 platform:
   run_id: pytest_smoke
   num_slots: 8
-  tti_ms: 5.0
   deadline_ms: 5.0
   device: cpu
   output_dir: {output_dir.as_posix()}
   seed: 11
 adapter:
-  num_ues: 4
   csi_dim: 8
   scheduled_per_slot: 2
-  history_len: 2
   seed: 11
 models:
   - dummy_parallel
@@ -55,9 +59,9 @@ def test_reference_sionna_scenario_profiles_load():
         "sionna_inh_hotspot.yaml",
         "sionna_rma_high_mobility.yaml",
     ]:
-        config = load_sionna_scenario(Path("configs") / name)
+        config = load_sionna_scenario(CONFIGS / name)
         platform = scenario_to_platform_config(config)
-        adapter = scenario_to_mock_adapter_config(config)
+        adapter = scenario_to_adapter_config(config)
         mapping = describe_sionna_mapping(config)
         assert platform.num_slots > 0
         assert adapter.num_ues == config.ue.num_ues
@@ -65,10 +69,10 @@ def test_reference_sionna_scenario_profiles_load():
 
 
 def test_scenario_smoke_config_outputs(tmp_path):
-    scenario_source = Path("configs/scenario_smoke.yaml").read_text(encoding="utf-8")
+    scenario_source = (CONFIGS / "scenario_smoke.yaml").read_text(encoding="utf-8")
     config_path = tmp_path / "scenario_smoke.yaml"
     scenario_profile = tmp_path / "sionna_umi_low_mobility.yaml"
-    scenario_profile.write_text(Path("configs/sionna_umi_low_mobility.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    scenario_profile.write_text((CONFIGS / "sionna_umi_low_mobility.yaml").read_text(encoding="utf-8"), encoding="utf-8")
     config_path.write_text(
         scenario_source.replace("outputs/scenario_smoke", (tmp_path / "scenario_outputs").as_posix()),
         encoding="utf-8",
@@ -82,7 +86,7 @@ def test_scenario_smoke_config_outputs(tmp_path):
 def test_user_model_example_runs(tmp_path):
     import sys
 
-    examples_dir = Path("examples").resolve()
+    examples_dir = (ROOT / "examples").resolve()
     sys.path.insert(0, str(examples_dir))
     try:
         from user_csi_models import build_user_models
@@ -90,11 +94,9 @@ def test_user_model_example_runs(tmp_path):
         sys.path.remove(str(examples_dir))
 
     from cple import CPLEPlatform
-    from cple.adapters import MockSionnaAdapter
-    from cple.runner import load_config
 
     scenario_profile = tmp_path / "sionna_umi_low_mobility.yaml"
-    scenario_profile.write_text(Path("configs/sionna_umi_low_mobility.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    scenario_profile.write_text((CONFIGS / "sionna_umi_low_mobility.yaml").read_text(encoding="utf-8"), encoding="utf-8")
     config_path = tmp_path / "user_models.yaml"
     config_path.write_text(
         f"""
@@ -113,9 +115,10 @@ models:
         encoding="utf-8",
     )
     config = load_config(config_path)
+    adapter = build_adapter(config)
     platform = CPLEPlatform(
         config.platform,
-        MockSionnaAdapter(config.adapter, tti_ms=config.platform.tti_ms),
+        adapter,
         build_user_models(csi_dim=config.adapter.csi_dim, horizon=3),
     )
     platform.run()
@@ -128,3 +131,23 @@ models:
     assert by_model.loc["user_serial_predict_then_feedback", "mean_feedback_duration_ms"] > by_model.loc["user_parallel_feedback_then_predict", "mean_feedback_duration_ms"]
     assert by_model.loc["user_serial_predict_then_feedback", "mean_total_latency_ms"] > by_model.loc["user_parallel_feedback_then_predict", "mean_total_latency_ms"]
     assert set(outputs) == {"latency_summary", "stage_summary"}
+
+
+def test_sionna_sys_adapter_schedules_feedback_from_pf_resources():
+    config = load_config(CONFIGS / "scenario_smoke.yaml")
+    adapter = build_adapter(config)
+    step = adapter.step(0)
+    assert step.metadata["adapter"] == "sionna_sys"
+    assert step.metadata["scheduler"] == "PFSchedulerSUMIMO"
+    assert step.metadata["channel_source"] == "3gpp_tr38901"
+    assert step.feedback_resources_by_ue
+    assert any(value > 0 for value in step.feedback_resources_by_ue.values())
+    ue_id = step.scheduled_ues[0]
+    schedule = adapter.schedule_feedback(
+        model_name="pytest_model",
+        ue_id=ue_id,
+        request_time_ms=step.sim_time_ms,
+        feedback_requests=1,
+        resource_units_per_request=1,
+    )
+    assert schedule.feedback_duration_ms > 0.0

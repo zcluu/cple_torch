@@ -1,6 +1,6 @@
 # CPLE
 
-CPLE (**Communication Process Lightweight Evaluation**) is a lightweight evaluation framework for PyTorch-based CSI feedback and prediction pipelines.
+CPLE (**Communication Process Lightweight Evaluation**) is a runtime evaluation framework for PyTorch-based CSI feedback and prediction pipelines under a Sionna SYS communication simulation flow.
 
 The current version focuses on runtime behavior that is hard to capture with static metrics such as FLOPs or parameter count. It compares serial and parallel CSI pipelines under a slot-based communication workload and reports model computation latency, feedback scheduling delay, feedback occupation time, and per-stage runtime.
 
@@ -22,7 +22,7 @@ Parallel pipeline:
   -> output T=0..P in one forward pass
 ```
 
-The framework includes a lightweight feedback-resource scheduler:
+The framework uses Sionna SYS to simulate UE scheduling and OFDM resource allocation. CPLE consumes the simulated resources and computes latency metrics itself:
 
 ```text
 total latency = model computation latency
@@ -94,16 +94,16 @@ Implemented:
 - API-first user model interface
 - Serial and parallel model execution
 - Per-stage runtime profiling
-- Lightweight feedback-resource scheduling
-- Sionna-style scenario YAML loading and validation
-- CPU-friendly mock communication adapter
+- Sionna SYS proportional-fair scheduling through `PFSchedulerSUMIMO`
+- Sionna topology sampling through `gen_hexgrid_topology`
+- 3GPP TR 38.901 channel coefficient generation for UMi/UMa/RMa profiles
+- Scenario YAML loading and validation
 - Example PyTorch CSI models
 - Regression tests
 
 Not implemented yet:
 
-- Full Sionna SYS provider
-- Real 3GPP channel/SINR/BLER/MCS integration
+- SINR/BLER/MCS and PHY abstraction integration
 - Real checkpoint loading for project-specific CSI models
 - Feedback payload bit-level modeling
 - Asynchronous serving

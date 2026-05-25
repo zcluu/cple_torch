@@ -9,7 +9,6 @@ from .events import EventType
 from .logger import CPLEEventLogger
 from .metrics import CPLEMetricsEngine
 from .profiler import OnlineRuntimeProfiler
-from .scheduler import FeedbackScheduler
 
 
 class CPLEPlatform:
@@ -21,13 +20,8 @@ class CPLEPlatform:
         self.profiler = OnlineRuntimeProfiler()
         self.dispatcher = ModelDispatcher(self.profiler, self.logger, deadline_ms=config.deadline_ms)
         self.metrics = CPLEMetricsEngine()
-        self.feedback_schedulers = {
-            model.name: FeedbackScheduler(
-                capacity_per_slot=config.feedback_capacity_per_slot,
-                slot_ms=config.feedback_slot_ms or config.tti_ms,
-            )
-            for model in models
-        }
+        if not hasattr(adapter, "schedule_feedback"):
+            raise TypeError("CPLEPlatform requires an adapter that schedules feedback through the Sionna SYS flow")
 
     def build_context(self, step_result, ue_id: int) -> CPLEContext:
         return CPLEContext(
@@ -68,9 +62,12 @@ class CPLEPlatform:
                     self.dispatcher.run(model, context)
                     delivery = self.logger.events[-1]
                     model_runtime_ms = delivery.runtime_ms or 0.0
-                    schedule = self.feedback_schedulers[model.name].schedule(
+                    schedule = self.adapter.schedule_feedback(
+                        model_name=model.name,
+                        ue_id=ue_id,
                         request_time_ms=context.sim_time_ms + model_runtime_ms,
                         feedback_requests=model.capability().feedback_requests,
+                        resource_units_per_request=self.config.feedback_resource_units_per_request,
                     )
                     delivery.scheduling_delay_ms = schedule.scheduling_delay_ms
                     delivery.feedback_duration_ms = schedule.feedback_duration_ms

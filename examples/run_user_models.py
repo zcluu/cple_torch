@@ -1,8 +1,7 @@
 import argparse
 
 from cple import CPLEPlatform
-from cple.adapters import MockSionnaAdapter
-from cple.runner import load_config, write_environment
+from cple.runner import build_adapter, load_config, write_environment
 from user_csi_models import build_user_models
 
 
@@ -16,8 +15,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     config = load_config(args.config)
-    adapter = MockSionnaAdapter(config.adapter, tti_ms=config.platform.tti_ms)
-    adapter.reset(config.platform.seed)
+    adapter = build_adapter(config)
     models = build_user_models(csi_dim=config.adapter.csi_dim, horizon=3)
 
     platform = CPLEPlatform(config.platform, adapter, models)

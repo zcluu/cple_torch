@@ -8,12 +8,12 @@ from typing import Any
 import torch
 import yaml
 
-from .adapters import MockSionnaAdapter
-from .config import ExperimentConfig, MockAdapterConfig, PlatformConfig
+from .config import AdapterConfig, ExperimentConfig, PlatformConfig
 from .models import DummyParallelModel, DummySerialModel
 from .platform import CPLEPlatform
-from .scenario import load_sionna_scenario, scenario_to_mock_adapter_config, scenario_to_platform_config
+from .scenario import load_sionna_scenario, scenario_to_adapter_config, scenario_to_platform_config
 from .sionna_adapter import inspect_sionna_environment
+from .sionna_sys_adapter import SionnaSysAdapter
 
 
 def _merge_dataclass(cls, data: dict[str, Any]):
@@ -35,17 +35,19 @@ def load_config(path: str | Path | None = None) -> ExperimentConfig:
             scenario_file = Path(path).parent / scenario_file
         scenario = load_sionna_scenario(scenario_file)
         platform_config = scenario_to_platform_config(scenario)
-        adapter_config = scenario_to_mock_adapter_config(scenario)
+        adapter_config = scenario_to_adapter_config(scenario)
         platform_config = _merge_dataclass(lambda: platform_config, data.get("platform", {}))
         adapter_config = _merge_dataclass(lambda: adapter_config, data.get("adapter", {}))
     else:
         platform_config = _merge_dataclass(PlatformConfig, data.get("platform", {}))
-        adapter_config = _merge_dataclass(MockAdapterConfig, data.get("adapter", {}))
+        adapter_config = _merge_dataclass(AdapterConfig, data.get("adapter", {}))
+        scenario_file = None
     return ExperimentConfig(
         platform=platform_config,
         adapter=adapter_config,
         models=data.get("models", ["dummy_parallel", "dummy_serial"]),
-        sionna_scenario_path=str(scenario_path) if scenario_path else None,
+        adapter_type="sionna_sys",
+        sionna_scenario_path=str(scenario_file) if scenario_path else None,
     )
 
 
@@ -59,6 +61,20 @@ def build_models(config: ExperimentConfig):
         else:
             raise ValueError(f"Unknown model: {name}")
     return models
+
+
+def build_adapter(config: ExperimentConfig):
+    if config.sionna_scenario_path is None:
+        raise ValueError("A Sionna scenario YAML is required for the official CPLE runtime path")
+    scenario = load_sionna_scenario(config.sionna_scenario_path)
+    adapter = SionnaSysAdapter(
+        scenario=scenario,
+        adapter_config=config.adapter,
+        tti_ms=config.platform.tti_ms,
+        device=config.platform.device,
+    )
+    adapter.reset(config.platform.seed)
+    return adapter
 
 
 def write_environment(path: Path) -> None:
@@ -87,8 +103,7 @@ def write_environment(path: Path) -> None:
 def run_experiment(config_path: str | Path | None = None) -> dict[str, Path]:
     config = load_config(config_path)
     torch.manual_seed(config.platform.seed)
-    adapter = MockSionnaAdapter(config.adapter, tti_ms=config.platform.tti_ms)
-    adapter.reset(config.platform.seed)
+    adapter = build_adapter(config)
     platform = CPLEPlatform(config.platform, adapter, build_models(config))
     platform.run()
     output_dir = Path(config.platform.output_dir)

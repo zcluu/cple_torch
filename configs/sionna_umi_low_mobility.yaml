@@ -36,6 +36,10 @@ channel:
   model: umi
   los: auto
   normalize_channel: true
+  use_3gpp_channel: true
+  o2i_model: low
+  enable_pathloss: true
+  enable_shadow_fading: true
 scheduler:
   type: proportional_fair
   num_streams_per_ue: 1
@@ -52,7 +56,7 @@ cple:
   csi_dim: 64
   history_len: 4
   deadline_ms: 5.0
-  feedback_capacity_per_slot: 4
+  feedback_resource_units_per_request: 64
 metadata:
   intended_use: single-cell or small multicell low-mobility CSI service stress test
   notes: Good default for early CPLE runtime/jitter experiments.

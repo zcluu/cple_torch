@@ -17,10 +17,12 @@ from .scenario import (
     SionnaScenarioConfig,
     describe_sionna_mapping,
     load_sionna_scenario,
+    scenario_to_adapter_config,
     scenario_to_mock_adapter_config,
     scenario_to_platform_config,
     validate_sionna_scenario,
 )
+from .sionna_sys_adapter import SionnaSysAdapter
 
 __all__ = [
     "CPLEContext",
@@ -40,7 +42,9 @@ __all__ = [
     "SionnaScenarioConfig",
     "describe_sionna_mapping",
     "load_sionna_scenario",
+    "scenario_to_adapter_config",
     "scenario_to_mock_adapter_config",
     "scenario_to_platform_config",
     "validate_sionna_scenario",
+    "SionnaSysAdapter",
 ]

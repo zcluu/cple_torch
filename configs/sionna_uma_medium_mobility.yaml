@@ -36,6 +36,10 @@ channel:
   model: uma
   los: auto
   normalize_channel: true
+  use_3gpp_channel: true
+  o2i_model: low
+  enable_pathloss: true
+  enable_shadow_fading: true
 scheduler:
   type: proportional_fair
   num_streams_per_ue: 1
@@ -52,7 +56,7 @@ cple:
   csi_dim: 128
   history_len: 4
   deadline_ms: 10.0
-  feedback_capacity_per_slot: 8
+  feedback_resource_units_per_request: 64
 metadata:
   intended_use: multi-UE scheduling pressure and queue latency experiment
   notes: Larger resource grid and UE count than UMi profile.

@@ -36,6 +36,9 @@ channel:
   model: rma
   los: auto
   normalize_channel: true
+  use_3gpp_channel: true
+  enable_pathloss: true
+  enable_shadow_fading: true
 scheduler:
   type: proportional_fair
   num_streams_per_ue: 1
@@ -52,7 +55,7 @@ cple:
   csi_dim: 64
   history_len: 6
   deadline_ms: 10.0
-  feedback_capacity_per_slot: 4
+  feedback_resource_units_per_request: 64
 metadata:
   intended_use: high-mobility prediction horizon and latency stress test
   notes: Useful when evaluating prediction horizon sensitivity and tail latency.

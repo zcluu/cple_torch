@@ -23,6 +23,7 @@ site/
 # Runtime outputs
 outputs/
 reports/
+tmp/
 
 # Documentation is intentionally excluded for the initial backup repo.
 docs/
