@@ -3,4 +3,4 @@ numpy
 pandas
 PyYAML
 pytest
-sionna-no-rt
+sionna
