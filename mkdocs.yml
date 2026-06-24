@@ -1,5 +1,5 @@
 site_name: CPLE Torch
-site_description: Communication Process Lightweight Evaluation for CSI feedback and prediction latency tests.
+site_description: Communication-Process Latency Evaluation for CSI feedback and prediction latency tests.
 repo_url: https://github.com/zcluu/cple_torch
 repo_name: zcluu/cple_torch
 theme:

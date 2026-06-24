@@ -9,7 +9,7 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 setup(
     name="cple-torch",
     version="0.2.0",
-    description="PyTorch latency evaluation toolkit for CSI feedback and prediction pipelines",
+    description="Communication-Process Latency Evaluation toolkit for CSI feedback and prediction pipelines",
     long_description=README,
     long_description_content_type="text/markdown",
     author="CPLE contributors",

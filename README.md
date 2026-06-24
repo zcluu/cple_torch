@@ -1,9 +1,9 @@
 # CPLE Torch
 
-CPLE Torch is a PyTorch-based latency evaluation toolkit for CSI feedback and
-prediction pipelines. It measures the runtime of UE-side models, feedback
-scheduling and occupation time, and BS-side models under a slot-based wireless
-service process.
+CPLE Torch implements Communication-Process Latency Evaluation for CSI feedback
+and prediction pipelines. It is a PyTorch-based toolkit for measuring UE-side
+model runtime, feedback scheduling and occupation time, and BS-side model
+runtime under a slot-based wireless service process.
 
 CPLE Torch is focused on latency and scheduling behavior. It does not evaluate
 prediction accuracy.
