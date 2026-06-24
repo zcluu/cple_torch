@@ -52,10 +52,14 @@ power_control:
   downlink: fair
   max_tx_power_dbm: 23.0
 cple:
-  csi_dim: 64
+  frame_shape: [2, 8, 8]
+  axes: [complex, rx_ant, subcarrier]
+  dtype: float32
   history_len: 6
+  horizon: 3
   deadline_ms: 10.0
-  feedback_resource_units_per_request: 64
+  feedback_bitwidth: 16
+  bits_per_resource_unit: 64
 metadata:
   intended_use: high-mobility prediction horizon and latency stress test
   notes: Useful when evaluating prediction horizon sensitivity and tail latency.

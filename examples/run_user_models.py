@@ -1,12 +1,16 @@
 import argparse
+from pathlib import Path
+import sys
 
-from cple import CPLEPlatform
-from cple.runner import build_adapter, load_config, write_environment
-from user_csi_models import build_user_models
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from cple.configs.runner import build_adapter, load_config, write_environment
+from cple.runtime.platform import CPLEPlatform
+from user_csi_models import build_user_flow
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run CPLE with user-defined PyTorch CSI models.")
+    parser = argparse.ArgumentParser(description="Run CPLE with user-defined CSI components.")
     parser.add_argument(
         "--config",
         default="configs/user_models.yaml",
@@ -16,13 +20,12 @@ if __name__ == "__main__":
 
     config = load_config(args.config)
     adapter = build_adapter(config)
-    models = build_user_models(csi_dim=config.adapter.csi_dim, horizon=3)
+    shape = config.shape.to_spec()
+    network = build_user_flow(shape=shape, device=config.platform.device, flow=config.flow)
 
-    platform = CPLEPlatform(config.platform, adapter, models)
-    platform.run()
+    platform = CPLEPlatform(config.platform, shape, config.feedback, adapter)
+    platform.run(network)
     outputs = platform.export_outputs(config.platform.output_dir)
-    from pathlib import Path
-
     output_dir = Path(config.platform.output_dir)
     write_environment(output_dir / "environment.txt")
 

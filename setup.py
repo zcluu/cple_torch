@@ -7,17 +7,17 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 
 setup(
-    name="cple",
+    name="cple-torch",
     version="0.2.0",
-    description="Communication Process Lightweight Evaluation runtime platform",
+    description="PyTorch latency evaluation toolkit for CSI feedback and prediction pipelines",
     long_description=README,
     long_description_content_type="text/markdown",
     author="CPLE contributors",
     license="MIT",
-    url="https://github.com/zcluu/CPLE",
+    url="https://github.com/zcluu/cple_torch",
     project_urls={
-        "Source": "https://github.com/zcluu/CPLE",
-        "Issues": "https://github.com/zcluu/CPLE/issues",
+        "Source": "https://github.com/zcluu/cple_torch",
+        "Issues": "https://github.com/zcluu/cple_torch/issues",
     },
     packages=find_packages(),
     python_requires=">=3.10",
@@ -41,6 +41,7 @@ setup(
     ],
     extras_require={
         "dev": ["pytest", "build", "twine"],
+        "docs": ["mkdocs", "mkdocstrings[python]", "mkdocs-material"],
     },
     entry_points={
         "console_scripts": [

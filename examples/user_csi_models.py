@@ -1,171 +1,143 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import torch
 from torch import nn
 
-from cple import (
-    CPLEParallelModelAPI,
-    CPLESerialModelAPI,
-    CPLEStage,
-    CSIServiceResult,
-    ModelCapability,
-)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from cple import BSInput, CSIShapeSpec, CSIWindow, FlowKind, ParallelNetwork, SerialNetwork
 
 
-class UserSerialPredictThenFeedback(CPLESerialModelAPI):
-    """User-defined serial CSI pipeline.
+class UserUEPart(nn.Module):
+    """UE-side model part, e.g. CSI/codeword encoder."""
 
-    Flow:
-      1. UE-side model predicts P future CSI frames.
-      2. The predicted frames are fed back one by one to the BS side.
+    name = "user_ue_part"
 
-    This class is intentionally simple: two Linear layers stand in for the
-    user's real PyTorch CSI prediction and feedback modules.
-    """
+    def __init__(self, shape: CSIShapeSpec, feedback_frames: int, compress_ratio: float = 2.0):
+        super().__init__()
+        self.shape = shape
+        self.feedback_frames = feedback_frames
+        in_features = shape.elements_per_frame * feedback_frames
+        out_features = max(1, int(in_features / compress_ratio))
+        self.net = nn.Linear(in_features, out_features)
+        self.eval()
 
-    name = "user_serial_predict_then_feedback"
+    def forward(self, data) -> torch.Tensor:
+        if isinstance(data, CSIWindow):
+            x = data.current.reshape(-1)
+        elif isinstance(data, torch.Tensor):
+            x = data.reshape(-1)
+        else:
+            x = data.window.current.reshape(-1)
+        expected = self.shape.elements_per_frame * self.feedback_frames
+        if x.numel() < expected:
+            x = torch.nn.functional.pad(x, (0, expected - x.numel()))
+        else:
+            x = x[:expected]
+        return self.net(x.to(torch.float32))
 
-    def __init__(self, csi_dim: int = 16, horizon: int = 3):
-        self.csi_dim = csi_dim
-        self.horizon = horizon
-        self.predictor = nn.Linear(csi_dim, csi_dim * horizon)
-        self.feedback = nn.Sequential(
-            nn.Linear(csi_dim, csi_dim // 2),
+
+class UserPredictor(nn.Module):
+    """UE-side predictor returning future CSI frames."""
+
+    name = "user_predictor"
+
+    def __init__(self, shape: CSIShapeSpec):
+        super().__init__()
+        self.shape = shape
+        self.net = nn.Linear(
+            shape.history_len * shape.elements_per_frame,
+            shape.horizon * shape.elements_per_frame,
+        )
+        self.eval()
+
+    def forward(self, window: CSIWindow) -> torch.Tensor:
+        x = window.history.reshape(-1).to(torch.float32)
+        return self.net(x).reshape(self.shape.horizon, *self.shape.frame_shape)
+
+
+class UserBSPart(nn.Module):
+    """BS-side model part; prediction/decoding order is internal to this module."""
+
+    name = "user_bs_part"
+
+    def __init__(self, shape: CSIShapeSpec):
+        super().__init__()
+        self.shape = shape
+        self.net = nn.Sequential(
+            nn.Linear(max(1, shape.elements_per_frame * shape.output_frames), shape.elements_per_frame),
             nn.ReLU(),
-            nn.Linear(csi_dim // 2, csi_dim),
+            nn.Linear(shape.elements_per_frame, shape.output_frames * shape.elements_per_frame),
         )
-        self.predictor.eval()
-        self.feedback.eval()
+        self.eval()
 
-    def prepare_input(self, context):
-        return context.h_t.float()
+    def forward(self, data: BSInput) -> torch.Tensor:
+        if isinstance(data.ue_output, (list, tuple)):
+            x = torch.cat([item.reshape(-1).to(torch.float32) for item in data.ue_output])
+        elif isinstance(data.ue_output, torch.Tensor):
+            x = data.ue_output.reshape(-1).to(torch.float32)
+        else:
+            x = data.window.current.reshape(-1).to(torch.float32)
+        if x.numel() < self.net[0].in_features:
+            x = torch.nn.functional.pad(x, (0, self.net[0].in_features - x.numel()))
+        else:
+            x = x[: self.net[0].in_features]
+        return self.net(x).reshape(data.window.target.shape)
 
-    def forward(self, model_input):
-        predicted_bundle = self.predict_future_p_frames(model_input)
-        outputs = {"predict_future_p_frames": predicted_bundle}
-        for frame_idx in range(self.horizon + 1):
-            outputs[f"feedback_frame_{frame_idx}"] = self.feedback_frame(
-                predicted_bundle, frame_idx
-            )
-        return outputs
 
-    def predict_future_p_frames(self, model_input):
-        future = self.predictor(model_input).reshape(self.horizon, self.csi_dim)
-        return torch.cat([model_input.reshape(1, self.csi_dim), future], dim=0)
-
-    def feedback_frame(self, frame_bundle, frame_idx: int):
-        return self.feedback(frame_bundle[frame_idx])
-
-    def stages(self):
-        stages = [
-            CPLEStage(
-                "predict_future_p_frames",
-                self.predict_future_p_frames,
-                output_frames=list(range(1, self.horizon + 1)),
-                operation_type="prediction",
-            ),
-        ]
-        previous = "predict_future_p_frames"
-        for frame_idx in range(self.horizon + 1):
-            stage_name = f"feedback_frame_{frame_idx}"
-            stages.append(
-                CPLEStage(
-                    stage_name,
-                    lambda bundle, idx=frame_idx: self.feedback_frame(bundle, idx),
-                    depends_on=[previous],
-                    input_from="predict_future_p_frames",
-                    output_frames=[frame_idx],
-                    operation_type="feedback",
-                )
-            )
-            previous = stage_name
-        return stages
-
-    def parse_output(self, output, context):
-        feedback_payload = torch.stack(
-            [output[f"feedback_frame_{idx}"] for idx in range(self.horizon + 1)],
-            dim=0,
+def build_user_flow(
+    shape: CSIShapeSpec,
+    device: str = "cpu",
+    flow: str | FlowKind = FlowKind.FB_PRED,
+) -> SerialNetwork | ParallelNetwork:
+    flow_kind = FlowKind(flow)
+    name = f"user_{flow_kind.value.replace('-', '_')}"
+    bs_part = UserBSPart(shape).to(device)
+    if flow_kind == FlowKind.FB_PRED:
+        return SerialNetwork.fb_pred(
+            name=name,
+            encoder=UserUEPart(shape, feedback_frames=1).to(device),
+            bs_steps=[("bs_network", bs_part)],
+            feedback_frames=1,
+            prediction_frames=shape.horizon,
         )
-        frames = {
-            idx: feedback_payload[idx].detach().clone()
-            for idx in range(self.horizon + 1)
-        }
-        return CSIServiceResult(
-            frames=frames,
-            valid_from_slot=context.slot_idx,
-            valid_until_slot=context.slot_idx + self.horizon,
-            metadata={"flow": "serial_predict_then_feedback"},
+    if flow_kind == FlowKind.PRED_FB:
+        return SerialNetwork.pred_fb(
+            name=name,
+            predictor=UserPredictor(shape).to(device),
+            encoder=UserUEPart(shape, feedback_frames=1).to(device),
+            bs_steps=[("bs_network", bs_part)],
+            feedback_frames=shape.output_frames,
+            prediction_frames=shape.horizon,
         )
-
-    def capability(self):
-        return ModelCapability(
-            output_frames=list(range(self.horizon + 1)),
-            requires_history=0,
-            feedback_requests=self.horizon + 1,
-        )
-
-
-class UserParallelFeedbackThenPredict(CPLEParallelModelAPI):
-    """User-defined parallel/network-side CSI pipeline.
-
-    Flow:
-      1. UE feeds back the current compressed/reconstructed CSI representation.
-      2. BS-side model performs one forward pass and emits T=0 plus T=1..P.
-
-    One Linear layer stands in for the real network-side joint feedback and
-    prediction model.
-    """
-
-    name = "user_parallel_feedback_then_predict"
-
-    def __init__(self, csi_dim: int = 16, horizon: int = 3):
-        self.csi_dim = csi_dim
-        self.horizon = horizon
-        self.joint_feedback_predictor = nn.Linear(csi_dim, csi_dim * (horizon + 1))
-        self.joint_feedback_predictor.eval()
-
-    def prepare_input(self, context):
-        return context.h_t.float()
-
-    def forward(self, model_input):
-        return self.joint_feedback_predictor(model_input)
-
-    def parse_output(self, output, context):
-        frames_tensor = output.reshape(self.horizon + 1, self.csi_dim)
-        frames = {
-            idx: frames_tensor[idx].detach().clone() for idx in range(self.horizon + 1)
-        }
-        return CSIServiceResult(
-            frames=frames,
-            valid_from_slot=context.slot_idx,
-            valid_until_slot=context.slot_idx + self.horizon,
-            metadata={"flow": "parallel_feedback_then_predict"},
-        )
-
-    def capability(self):
-        return ModelCapability(
-            output_frames=list(range(self.horizon + 1)),
-            requires_history=0,
-            feedback_requests=1,
-        )
-
-
-def build_user_models(csi_dim: int = 16, horizon: int = 3):
-    return [
-        UserSerialPredictThenFeedback(csi_dim=csi_dim, horizon=horizon),
-        UserParallelFeedbackThenPredict(csi_dim=csi_dim, horizon=horizon),
-    ]
+    return ParallelNetwork(
+        name=name,
+        encoder=UserUEPart(shape, feedback_frames=1).to(device),
+        bs_network=bs_part,
+        feedback_frames=1,
+        prediction_frames=shape.horizon,
+    )
 
 
 if __name__ == "__main__":
-    # Tiny sanity check for developers editing this example directly.
-    x = torch.randn(16)
-    serial = UserSerialPredictThenFeedback(csi_dim=16)
-    parallel = UserParallelFeedbackThenPredict(csi_dim=16)
-    bundle = serial.predict_future_p_frames(x)
-    assert bundle.shape == (4, 16)
-    assert torch.stack(
-        [serial.feedback_frame(bundle, idx) for idx in range(4)]
-    ).shape == (4, 16)
-    assert parallel.forward(x).shape == (64,)
-    print("user CSI models are importable")
+    spec = CSIShapeSpec(
+        frame_shape=(2, 4, 4),
+        axes=("complex", "rx_ant", "subcarrier"),
+        history_len=4,
+        horizon=3,
+        dtype="float32",
+    )
+    network = build_user_flow(spec, flow=FlowKind.PARALLEL)
+    flow = network.build_flow(spec)
+    window = CSIWindow(
+        history=torch.randn(spec.history_len, *spec.frame_shape),
+        current=torch.randn(*spec.frame_shape),
+        target=torch.randn(spec.output_frames, *spec.frame_shape),
+    )
+    ue_output = flow.ue_steps[0].module(window)
+    assert ue_output.ndim == 1
+    assert flow.bs_steps[0].module(BSInput(window, ue_output, flow.flow, 1)).shape == window.target.shape
+    print("user CPLE UE/BS parts are importable")

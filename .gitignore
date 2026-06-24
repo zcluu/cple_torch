@@ -25,9 +25,7 @@ outputs/
 reports/
 tmp/
 
-# Documentation is intentionally excluded for the initial backup repo.
-docs/
-mkdocs.yml
+# Documentation source files are tracked.
 
 # Local/editor files
 .idea/

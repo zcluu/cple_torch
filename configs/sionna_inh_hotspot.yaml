@@ -50,10 +50,14 @@ power_control:
   downlink: fair
   max_tx_power_dbm: 20.0
 cple:
-  csi_dim: 96
+  frame_shape: [2, 12, 8]
+  axes: [complex, rx_ant, subcarrier]
+  dtype: float32
   history_len: 4
+  horizon: 3
   deadline_ms: 2.0
-  feedback_resource_units_per_request: 64
+  feedback_bitwidth: 16
+  bits_per_resource_unit: 64
 metadata:
   intended_use: tight-deadline dense indoor scheduling experiment
   notes: Useful for deadline miss and jitter stress tests.

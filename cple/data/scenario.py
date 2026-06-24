@@ -6,12 +6,12 @@ from typing import Any, Literal
 
 import yaml
 
-from .config import AdapterConfig, PlatformConfig
+from ..configs.schema import AdapterConfig, FeedbackConfig, PlatformConfig, ShapeConfig
 
 
 ScenarioName = Literal["umi", "uma", "rma", "inh"]
 DuplexMode = Literal["uplink", "downlink"]
-SchedulerType = Literal["proportional_fair", "round_robin", "fixed"]
+SchedulerType = Literal["proportional_fair"]
 
 
 @dataclass
@@ -92,10 +92,14 @@ class ScenarioPowerControlConfig:
 
 @dataclass
 class ScenarioCPLEConfig:
-    csi_dim: int = 64
+    frame_shape: tuple[int, ...] = (2, 8, 8)
+    axes: tuple[str, ...] = ("complex", "rx_ant", "subcarrier")
+    dtype: str = "float32"
     history_len: int = 4
+    horizon: int = 3
     deadline_ms: float = 5.0
-    feedback_resource_units_per_request: int = 64
+    feedback_bitwidth: int = 16
+    bits_per_resource_unit: int = 64
 
 
 @dataclass
@@ -127,6 +131,8 @@ def _merge_dataclass(cls, data: dict[str, Any]):
             value = int(value)
         elif isinstance(current, bool) and isinstance(value, str):
             value = value.lower() in {"1", "true", "yes"}
+        elif isinstance(current, tuple) and isinstance(value, list):
+            value = tuple(value)
         setattr(obj, key, value)
     return obj
 
@@ -174,31 +180,36 @@ def validate_sionna_scenario(config: SionnaScenarioConfig) -> None:
         raise ValueError("ue.scheduled_per_slot must be positive")
     if config.ue.scheduled_per_slot > config.ue.num_ues:
         raise ValueError("ue.scheduled_per_slot cannot exceed ue.num_ues")
-    if config.cple.csi_dim <= 0:
-        raise ValueError("cple.csi_dim must be positive")
+    if not config.cple.frame_shape:
+        raise ValueError("cple.frame_shape must not be empty")
+    if any(dim <= 0 for dim in config.cple.frame_shape):
+        raise ValueError("cple.frame_shape dimensions must be positive")
+    if len(config.cple.frame_shape) != len(config.cple.axes):
+        raise ValueError("cple.frame_shape and cple.axes must have the same length")
+    if config.cple.dtype not in {"float32", "complex64"}:
+        raise ValueError("cple.dtype must be float32 or complex64")
     if config.cple.history_len <= 0:
         raise ValueError("cple.history_len must be positive")
-    if config.cple.feedback_resource_units_per_request <= 0:
-        raise ValueError("cple.feedback_resource_units_per_request must be positive")
+    if config.cple.horizon <= 0:
+        raise ValueError("cple.horizon must be positive")
+    if config.cple.feedback_bitwidth <= 0:
+        raise ValueError("cple.feedback_bitwidth must be positive")
+    if config.cple.bits_per_resource_unit <= 0:
+        raise ValueError("cple.bits_per_resource_unit must be positive")
     if config.nr.carrier_frequency_hz <= 0:
         raise ValueError("nr.carrier_frequency_hz must be positive")
     if config.nr.bandwidth_hz <= 0:
         raise ValueError("nr.bandwidth_hz must be positive")
-    if config.scheduler.type not in {"proportional_fair", "round_robin", "fixed"}:
-        raise ValueError("scheduler.type must be proportional_fair, round_robin, or fixed")
+    if config.scheduler.type != "proportional_fair":
+        raise ValueError("scheduler.type must be proportional_fair")
 
 
 def scenario_to_adapter_config(config: SionnaScenarioConfig) -> AdapterConfig:
     return AdapterConfig(
         num_ues=config.ue.num_ues,
-        csi_dim=config.cple.csi_dim,
         scheduled_per_slot=config.ue.scheduled_per_slot,
-        history_len=config.cple.history_len,
         seed=config.seed,
     )
-
-
-scenario_to_mock_adapter_config = scenario_to_adapter_config
 
 
 def scenario_to_platform_config(config: SionnaScenarioConfig, output_dir: str | None = None) -> PlatformConfig:
@@ -208,10 +219,26 @@ def scenario_to_platform_config(config: SionnaScenarioConfig, output_dir: str | 
         tti_ms=config.time.tti_ms,
         deadline_ms=config.cple.deadline_ms,
         device="cpu",
-        feedback_resource_units_per_request=config.cple.feedback_resource_units_per_request,
         warmup_slots=config.time.warmup_slots,
         output_dir=output_dir or f"outputs/{config.name}",
         seed=config.seed,
+    )
+
+
+def scenario_to_shape_config(config: SionnaScenarioConfig) -> ShapeConfig:
+    return ShapeConfig(
+        frame_shape=tuple(config.cple.frame_shape),
+        axes=tuple(config.cple.axes),
+        dtype=config.cple.dtype,
+        history_len=config.cple.history_len,
+        horizon=config.cple.horizon,
+    )
+
+
+def scenario_to_feedback_config(config: SionnaScenarioConfig) -> FeedbackConfig:
+    return FeedbackConfig(
+        bitwidth=config.cple.feedback_bitwidth,
+        bits_per_resource_unit=config.cple.bits_per_resource_unit,
     )
 
 
@@ -226,9 +253,7 @@ def describe_sionna_mapping(config: SionnaScenarioConfig) -> dict[str, Any]:
             "num_ut_per_sector": max(1, config.ue.num_ues // max(1, config.topology.sectors_per_cell)),
         },
         "scheduler": {
-            "class": "sionna.sys.scheduling.PFSchedulerSUMIMO"
-            if config.scheduler.type == "proportional_fair"
-            else config.scheduler.type,
+            "class": "sionna.sys.scheduling.PFSchedulerSUMIMO",
             "num_ut": config.ue.num_ues,
             "num_freq_res": config.nr.num_frequency_resources,
             "num_ofdm_sym": config.nr.num_ofdm_symbols,

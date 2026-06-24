@@ -1,0 +1,56 @@
+site_name: CPLE Torch
+site_description: Communication Process Lightweight Evaluation for CSI feedback and prediction latency tests.
+repo_url: https://github.com/zcluu/cple_torch
+repo_name: zcluu/cple_torch
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+markdown_extensions:
+  - admonition
+  - attr_list
+  - codehilite
+  - toc:
+      permalink: true
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["."]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_if_no_docstring: true
+            members_order: source
+            filters: ["!^_"]
+nav:
+  - Overview: index.md
+  - Getting Started:
+      - Installation: getting-started/installation.md
+      - Quickstart: getting-started/quickstart.md
+  - Concepts:
+      - Flow I/O Contract: concepts/flow-io.md
+      - Flow I/O Compatibility Link: flow_io.md
+      - Latency Model: concepts/latency-model.md
+      - Sionna Data: concepts/sionna-data.md
+  - User Guide:
+      - API Usage: user-guide/api-usage.md
+      - Configuration: user-guide/configuration.md
+      - Outputs And Metrics: user-guide/outputs.md
+      - Custom Models: user-guide/custom-models.md
+  - API Reference:
+      - Public API: api/public.md
+      - Core Types: api/core-types.md
+      - Configs: api/configs.md
+      - Runtime: api/runtime.md
+      - Data And Sionna: api/data.md
+      - Reporting: api/reporting.md
+      - Models: api/models.md
+      - Tools: api/tools.md

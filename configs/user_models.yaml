@@ -4,10 +4,15 @@ platform:
   num_slots: 16
   output_dir: outputs/user_model_example
   deadline_ms: 5.0
-  feedback_resource_units_per_request: 64
 adapter:
-  csi_dim: 128
   scheduled_per_slot: 2
-models:
-  - user_serial_predict_then_feedback
-  - user_parallel_feedback_then_predict
+shape:
+  frame_shape: [2, 8, 8]
+  axes: [complex, rx_ant, subcarrier]
+  history_len: 4
+  horizon: 3
+  dtype: float32
+feedback:
+  bitwidth: 8
+  bits_per_resource_unit: 64
+flow: parallel

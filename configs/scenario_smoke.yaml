@@ -4,8 +4,14 @@ platform:
   num_slots: 12
   output_dir: outputs/scenario_smoke
 adapter:
-  csi_dim: 16
   scheduled_per_slot: 2
-models:
-  - dummy_parallel
-  - dummy_serial
+shape:
+  frame_shape: [2, 4, 4]
+  axes: [complex, rx_ant, subcarrier]
+  history_len: 4
+  horizon: 3
+  dtype: float32
+feedback:
+  bitwidth: 8
+  bits_per_resource_unit: 64
+flow: fb-pred

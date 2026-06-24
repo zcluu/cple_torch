@@ -3,102 +3,108 @@ from __future__ import annotations
 import torch
 from torch import nn
 
-from ..api import (
-    CPLEContext,
-    CPLEParallelModelAPI,
-    CPLESerialModelAPI,
-    CPLEStage,
-    CSIServiceResult,
-    ModelCapability,
-)
+from ..api import BSInput, CSIShapeSpec, CSIWindow, FlowKind, ParallelNetwork, SerialNetwork
 
 
-class DummyParallelModel(CPLEParallelModelAPI):
-    name = "dummy_parallel"
+class LinearUEPart(nn.Module):
+    name = "linear_ue_part"
 
-    def __init__(self, csi_dim: int = 8, horizon: int = 3):
-        self.csi_dim = csi_dim
-        self.horizon = horizon
-        self.net = nn.Linear(csi_dim, csi_dim * (horizon + 1))
-        self.net.eval()
+    def __init__(self, shape: CSIShapeSpec, frames: int, latent_ratio: float = 2.0):
+        super().__init__()
+        self.shape = shape
+        self.frames = frames
+        self.out_features = max(1, int(shape.elements_per_frame * frames / latent_ratio))
+        self.net = nn.Linear(shape.elements_per_frame * frames, self.out_features)
+        self.eval()
 
-    def prepare_input(self, context: CPLEContext):
-        return context.h_t.float()
+    def forward(self, data) -> torch.Tensor:
+        if isinstance(data, CSIWindow):
+            x = data.current.reshape(-1) if self.frames == 1 else data.history[-self.frames :].reshape(-1)
+        elif isinstance(data, torch.Tensor):
+            x = data.reshape(-1)
+        else:
+            x = data.window.current.reshape(-1)
+        expected = self.shape.elements_per_frame * self.frames
+        if x.numel() < expected:
+            x = torch.nn.functional.pad(x, (0, expected - x.numel()))
+        else:
+            x = x[:expected]
+        return self.net(x.to(torch.float32))
 
-    def forward(self, model_input):
-        return self.net(model_input)
 
-    def parse_output(self, output, context: CPLEContext) -> CSIServiceResult:
-        chunks = output.reshape(self.horizon + 1, self.csi_dim)
-        frames = {idx: chunks[idx].detach().clone() for idx in range(self.horizon + 1)}
-        return CSIServiceResult(
-            frames=frames,
-            valid_from_slot=context.slot_idx,
-            valid_until_slot=context.slot_idx + self.horizon,
-            metadata={"model_type": "dummy_parallel"},
+class LinearPredictor(nn.Module):
+    name = "linear_predictor"
+
+    def __init__(self, shape: CSIShapeSpec):
+        super().__init__()
+        self.shape = shape
+        self.net = nn.Linear(
+            shape.history_len * shape.elements_per_frame,
+            shape.horizon * shape.elements_per_frame,
         )
+        self.eval()
 
-    def capability(self) -> ModelCapability:
-        return ModelCapability(
-            output_frames=list(range(self.horizon + 1)),
-            requires_history=0,
-            feedback_requests=1,
+    def forward(self, window: CSIWindow) -> torch.Tensor:
+        x = window.history.reshape(-1).to(torch.float32)
+        return self.net(x).reshape(self.shape.horizon, *self.shape.frame_shape)
+
+
+class LinearBSPart(nn.Module):
+    name = "linear_bs_part"
+
+    def __init__(self, shape: CSIShapeSpec):
+        super().__init__()
+        self.shape = shape
+        self.in_features = shape.output_frames * shape.elements_per_frame
+        self.net = nn.Linear(
+            self.in_features,
+            shape.output_frames * shape.elements_per_frame,
         )
+        self.eval()
+
+    def forward(self, data: BSInput) -> torch.Tensor:
+        if isinstance(data.ue_output, (list, tuple)):
+            x = torch.cat([item.reshape(-1).to(torch.float32) for item in data.ue_output])
+        elif isinstance(data.ue_output, torch.Tensor):
+            x = data.ue_output.reshape(-1).to(torch.float32)
+        else:
+            x = data.window.current.reshape(-1).to(torch.float32)
+        if x.numel() < self.in_features:
+            x = torch.nn.functional.pad(x, (0, self.in_features - x.numel()))
+        else:
+            x = x[: self.in_features]
+        return self.net(x).reshape(data.window.target.shape)
 
 
-class DummySerialModel(CPLESerialModelAPI):
-    name = "dummy_serial"
-
-    def __init__(self, csi_dim: int = 8, horizon: int = 3):
-        self.csi_dim = csi_dim
-        self.horizon = horizon
-        self.feedback = nn.Linear(csi_dim, csi_dim)
-        self.prediction = nn.Linear(csi_dim, csi_dim * horizon)
-        self.feedback.eval()
-        self.prediction.eval()
-
-    def prepare_input(self, context: CPLEContext):
-        return context.h_t.float()
-
-    def forward(self, model_input):
-        reconstructed = self.feedback(model_input)
-        future = self.prediction(reconstructed)
-        return {"feedback": reconstructed, "prediction": future}
-
-    def run_feedback(self, model_input):
-        return self.feedback(model_input)
-
-    def run_prediction(self, reconstructed):
-        return self.prediction(reconstructed)
-
-    def stages(self) -> list[CPLEStage]:
-        return [
-            CPLEStage("feedback_reconstruction", self.run_feedback, output_frames=[0], operation_type="feedback"),
-            CPLEStage(
-                "future_prediction",
-                self.run_prediction,
-                depends_on=["feedback_reconstruction"],
-                output_frames=list(range(1, self.horizon + 1)),
-                operation_type="prediction",
-            ),
-        ]
-
-    def parse_output(self, output, context: CPLEContext) -> CSIServiceResult:
-        reconstructed = output["feedback_reconstruction"].detach().clone()
-        future = output["future_prediction"].reshape(self.horizon, self.csi_dim)
-        frames = {0: reconstructed}
-        for idx in range(1, self.horizon + 1):
-            frames[idx] = future[idx - 1].detach().clone()
-        return CSIServiceResult(
-            frames=frames,
-            valid_from_slot=context.slot_idx,
-            valid_until_slot=context.slot_idx + self.horizon,
-            metadata={"model_type": "dummy_serial"},
+def build_dummy_flow(
+    shape: CSIShapeSpec,
+    device: str = "cpu",
+    flow: str | FlowKind = FlowKind.FB_PRED,
+) -> SerialNetwork | ParallelNetwork:
+    flow_kind = FlowKind(flow)
+    name = f"dummy_{flow_kind.value.replace('-', '_')}"
+    bs_part = LinearBSPart(shape).to(device)
+    if flow_kind == FlowKind.FB_PRED:
+        return SerialNetwork.fb_pred(
+            name=name,
+            encoder=LinearUEPart(shape, frames=1).to(device),
+            bs_steps=[("bs_network", bs_part)],
+            feedback_frames=1,
+            prediction_frames=shape.horizon,
         )
-
-    def capability(self) -> ModelCapability:
-        return ModelCapability(
-            output_frames=list(range(self.horizon + 1)),
-            requires_history=0,
-            feedback_requests=1,
+    if flow_kind == FlowKind.PRED_FB:
+        return SerialNetwork.pred_fb(
+            name=name,
+            predictor=LinearPredictor(shape).to(device),
+            encoder=LinearUEPart(shape, frames=1).to(device),
+            bs_steps=[("bs_network", bs_part)],
+            feedback_frames=shape.output_frames,
+            prediction_frames=shape.horizon,
         )
+    return ParallelNetwork(
+        name=name,
+        encoder=LinearUEPart(shape, frames=1).to(device),
+        bs_network=bs_part,
+        feedback_frames=1,
+        prediction_frames=shape.horizon,
+    )
